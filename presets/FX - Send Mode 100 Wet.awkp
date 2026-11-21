@@ -1,0 +1,15 @@
+{
+  "fields": {},
+  "params": {
+    "a_out": {
+      "f32": 0.0
+    },
+    "b_out": {
+      "f32": -3.0
+    },
+    "dryon": {
+      "bool": false
+    }
+  },
+  "version": "0.1.0"
+}
