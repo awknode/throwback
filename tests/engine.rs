@@ -314,3 +314,39 @@ fn cross_feed_never_adds_up_over_100() {
     let pk = peak(&l[n - 48000..]).max(peak(&r[n - 48000..]));
     assert!(db(pk) < -60.0, "cross-feed tail still {:.1} dB after 90 s", db(pk));
 }
+
+#[test]
+fn insert_at_defaults_sounds_exactly_like_parallel() {
+    let mut s = 7u32;
+    let input: Vec<(f32, f32)> = (0..(SR as usize / 2)).map(|_| (noise(&mut s) * 0.5, noise(&mut s) * 0.5)).collect();
+    let mut run = |par: bool| {
+        let mut tb = ThrowBack::for_test(SR, 120.0);
+        let p = tb.params_arc();
+        p.mix.smoothed.reset(0.0);
+        tb.force_parallel = Some(par);
+        render(&mut tb, 0.5, &mut |i| input[i])
+    };
+    let (pl, pr) = run(true);
+    let (il, ir) = run(false);
+    assert_eq!(pl, il, "INSERT at defaults changed L");
+    assert_eq!(pr, ir, "INSERT at defaults changed R");
+}
+
+#[test]
+fn insert_original_strip_shapes_the_dry() {
+    let mut tb = ThrowBack::for_test(SR, 120.0);
+    let p = tb.params_arc();
+    p.mix.smoothed.reset(0.0);
+    tb.force_parallel = Some(false);
+    p.o_out.smoothed.reset(-6.0);
+    let (l, _) = render(&mut tb, 0.2, &mut |_| (0.5, 0.5));
+    let last = l[l.len() - 1];
+    assert!((db(last.abs()) - (db(0.5) - 6.0)).abs() < 0.1, "ORIGINAL OUTPUT -6 dB gave {last}");
+    // and PARALLEL ignores the strip
+    let mut tb = ThrowBack::for_test(SR, 120.0);
+    let p = tb.params_arc();
+    p.mix.smoothed.reset(0.0);
+    p.o_out.smoothed.reset(-6.0);
+    let (l, _) = render(&mut tb, 0.2, &mut |_| (0.5, 0.5));
+    assert_eq!(l[l.len() - 1], 0.5, "PARALLEL must leave the dry untouched");
+}

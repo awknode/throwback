@@ -7,15 +7,18 @@
 //! Power = host bypass (20 ms ramp). Latency 0: oversampling only runs on the
 //! DRIVE stage, and its delay is taken out of the delay time.
 
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 mod awk_ui;
 pub mod dsp;
+
 mod editor;
+mod nice_app;
 pub mod lane;
 pub mod model;
+pub mod orig;
 mod oversample;
 pub mod params;
 mod presets;
@@ -49,6 +52,7 @@ pub struct ThrowBack {
     sr: f32,
     bpm: f32,
     lanes: Option<[Lane; 2]>,
+    orig: crate::orig::Orig,
     byp: awk_ui::BypassRamp,
     ceil: awk_ui::Ceiling,
     meter: awk_ui::PeakFollower,
@@ -61,6 +65,8 @@ pub struct ThrowBack {
     pub force_kind: [Option<i32>; 2],
     /// Tests: force the ROUTING.
     pub force_route: Option<i32>,
+    /// tests: PARALLEL on/off without the host
+    pub force_parallel: Option<bool>,
 }
 
 impl Default for ThrowBack {
@@ -71,6 +77,7 @@ impl Default for ThrowBack {
             sr: 48000.0,
             bpm: 120.0,
             lanes: None,
+            orig: crate::orig::Orig::new(48000.0),
             byp: awk_ui::BypassRamp::default(),
             ceil: awk_ui::Ceiling::default(),
             meter: awk_ui::PeakFollower::default(),
@@ -80,6 +87,7 @@ impl Default for ThrowBack {
             tweak: None,
             force_kind: [None; 2],
             force_route: None,
+            force_parallel: None,
         }
     }
 }
@@ -110,6 +118,8 @@ impl ThrowBack {
         let aud = [audible(&p, 0), audible(&p, 1)];
         let bypassed = p.bypass.value();
         let dry_on = p.dry_on.value();
+        let parallel = self.force_parallel.unwrap_or(p.parallel.value());
+        self.orig.setup(&p);
         let safe = p.safe.value();
         let mut last = [(0.0f32, 0.0f32); 2];
         for i in 0..l.len() {
@@ -144,8 +154,11 @@ impl ThrowBack {
             self.lane_pk[0] = self.lane_pk[0].max(a.l.abs().max(a.r.abs()));
             self.lane_pk[1] = self.lane_pk[1].max(b.l.abs().max(b.r.abs()));
             let wet = self.byp.next(bypassed);
-            let ol = il * dry_g + (a.l + b.l) * mix;
-            let or = ir * dry_g + (a.r + b.r) * mix;
+            // PARALLEL: the dry is your sound untouched. INSERT: it runs through ORIGINAL.
+            let (dl, dr) = self.orig.tick(&p, il, ir);
+            let (dl, dr) = if parallel { (il, ir) } else { (dl, dr) };
+            let ol = dl * dry_g + (a.l + b.l) * mix;
+            let or = dr * dry_g + (a.r + b.r) * mix;
             // bypass crossfades to the untouched input
             let ol = il + (ol - il) * wet;
             let or = ir + (or - ir) * wet;
@@ -180,8 +193,9 @@ impl ThrowBack {
         t.byp.set_sr(sr);
         t.ceil.set_sr(sr);
         t.meter.set_sr(sr);
+        t.orig = crate::orig::Orig::new(sr);
         let p = t.params.clone();
-        for f in [&p.mix, &p.dry, &p.cross] {
+        for f in [&p.mix, &p.dry, &p.cross, &p.o_drive, &p.o_lc, &p.o_hc, &p.o_width, &p.o_pan, &p.o_out] {
             f.smoothed.reset(f.value());
         }
         for l in [&p.a, &p.b] {
@@ -215,6 +229,7 @@ impl Plugin for ThrowBack {
     ];
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const SAMPLE_ACCURATE_AUTOMATION: bool = false;
+    type Editor = crate::nice_app::AwkEditor;
     type SysExMessage = ();
     type BackgroundTask = ();
 
@@ -222,15 +237,16 @@ impl Plugin for ThrowBack {
         self.params.clone()
     }
 
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Self::Editor> {
         editor::create(self.params.clone(), self.shared.clone())
     }
 
-    fn initialize(&mut self, _layout: &AudioIOLayout, cfg: &BufferConfig, _ctx: &mut impl InitContext<Self>) -> bool {
+    fn activate(&mut self, _layout: &AudioIOLayout, cfg: &BufferConfig, _ctx: &mut impl ActivateContext<Self>) -> bool {
         if (cfg.sample_rate - self.sr).abs() > 0.5 || self.lanes.is_none() {
             self.sr = cfg.sample_rate;
             // Allocate here, never on the audio thread.
             self.lanes = Some([Lane::new(self.sr, 1), Lane::new(self.sr, 2)]);
+            self.orig = crate::orig::Orig::new(self.sr);
         }
         self.byp.set_sr(self.sr);
         self.ceil.set_sr(self.sr);
@@ -242,6 +258,7 @@ impl Plugin for ThrowBack {
         if let Some(l) = self.lanes.as_mut() {
             l.iter_mut().for_each(Lane::clear);
         }
+        self.orig.clear();
     }
 
     fn process(&mut self, buffer: &mut Buffer, aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
@@ -286,5 +303,5 @@ impl Vst3Plugin for ThrowBack {
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Delay];
 }
 
-nih_export_clap!(ThrowBack);
-nih_export_vst3!(ThrowBack);
+nice_export_clap!(ThrowBack);
+nice_export_vst3!(ThrowBack);

@@ -1,8 +1,8 @@
 //! ThrowBack parameters: global controls + two identical lanes (ids a_* / b_*).
 
 use crate::awk_ui;
-use nih_plug::prelude::*;
-use nih_plug_egui::EguiState;
+use nice_plug::prelude::*;
+use nice_plug_egui::EguiEditorState;
 use std::sync::Arc;
 
 pub const NOTE_NAMES: [&str; 19] = ["1/64", "1/32T", "1/32", "1/16T", "1/32D", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2", "1/1T", "1/2D", "1/1", "2/1"];
@@ -49,7 +49,7 @@ pub const S_DUAL: i32 = 1;
 pub const S_PING: i32 = 2;
 pub const S_RATIO: i32 = 3;
 pub const S_RHYTHM: i32 = 4;
-pub const ROUTES: [&str; 3] = ["PARALLEL", "SERIAL A›B", "CROSS-FEED"];
+pub const ROUTES: [&str; 3] = ["SIDE BY SIDE", "A › B", "CROSS-FEED"];
 pub const SLOPES: [&str; 3] = ["6", "12", "24 dB"];
 pub const TCHANGE: [&str; 3] = ["TAPE SLIDE", "CROSSFADE", "JUMP"];
 pub const MOD_SHAPES: [&str; 5] = ["SINE", "TRIANGLE", "RANDOM", "TAPE WOW", "ENVELOPE"];
@@ -129,6 +129,21 @@ fn hz(name: &str, def: f32, min: f32, max: f32) -> FloatParam {
         .with_value_to_string(formatters::v2s_f32_hz_then_khz(1))
         .with_string_to_value(formatters::s2v_f32_hz_then_khz())
 }
+fn pan_param(name: &str) -> FloatParam {
+    FloatParam::new(name, 0.0, FloatRange::Linear { min: -1.0, max: 1.0 })
+        .with_smoother(SmoothingStyle::Linear(30.0))
+        .with_value_to_string(Arc::new(|v| {
+            let p = (v * 100.0).round() as i32;
+            if p == 0 {
+                "C".into()
+            } else if p < 0 {
+                format!("L{}", -p)
+            } else {
+                format!("R{p}")
+            }
+        }))
+}
+
 fn choice(name: &str, def: i32, names: &'static [&'static str]) -> IntParam {
     IntParam::new(name, def, IntRange::Linear { min: 0, max: names.len() as i32 - 1 })
         .with_value_to_string(Arc::new(move |v| names[v.clamp(0, names.len() as i32 - 1) as usize].to_string()))
@@ -337,18 +352,7 @@ impl LaneParams {
             lc: hz("Low Cut", pick(150.0, 250.0), 20.0, 2000.0),
             hc: hz("High Cut", pick(6000.0, 9000.0), 1000.0, 20000.0),
             width: pct("Width", pick(1.0, 1.2), 2.0),
-            pan: FloatParam::new("Pan", 0.0, FloatRange::Linear { min: -1.0, max: 1.0 })
-                .with_smoother(SmoothingStyle::Linear(30.0))
-                .with_value_to_string(Arc::new(|v| {
-                    let p = (v * 100.0).round() as i32;
-                    if p == 0 {
-                        "C".into()
-                    } else if p < 0 {
-                        format!("L{}", -p)
-                    } else {
-                        format!("R{p}")
-                    }
-                })),
+            pan: pan_param("Pan"),
             out: level("Output", pick(-6.0, -9.0)),
             slope: choice("Filter Slope", 1, &SLOPES),
             inloop: BoolParam::new("Filter In Loop", true),
@@ -360,7 +364,7 @@ impl LaneParams {
             tchange: choice("When Time Changes", pi(0, 1), &TCHANGE),
             ratio: lin("L/R Ratio", 0.75, 0.25, 2.0, "x", 2),
             offset: lin("R Offset", 0.0, -50.0, 50.0, " ms", 1),
-            groove: pct("Groove", 0.0, 1.0).with_value_to_string(Arc::new(|v| format!("{:.0}% swing", 50.0 + v * 25.0))),
+            groove: pct("Groove", 0.0, 1.0).with_unit("").with_value_to_string(Arc::new(|v| format!("{:.0}% swing", 50.0 + v * 25.0))),
             feel: lin("Feel", 0.0, -20.0, 20.0, " ms", 1),
             glide: skew("Glide", 600.0, 0.0, 2000.0, " ms", 0),
             mshape: choice("Mod Shape", pi(3, 0), &MOD_SHAPES),
@@ -410,8 +414,8 @@ impl LaneParams {
 
 #[derive(Params)]
 pub struct TbParams {
-    #[persist = "editor-state"]
-    pub editor_state: Arc<EguiState>,
+    /// window size (hosts keep track of it; not persisted)
+    pub editor_state: Arc<EguiEditorState>,
     #[id = "gmix"]
     pub mix: FloatParam,
     #[id = "bypass"]
@@ -428,6 +432,22 @@ pub struct TbParams {
     pub dry_on: BoolParam,
     #[id = "cross"]
     pub cross: FloatParam,
+    /// ON (default): your sound passes untouched, lanes add on top.
+    /// OFF (INSERT): your sound runs through the ORIGINAL strip first.
+    #[id = "par"]
+    pub parallel: BoolParam,
+    #[id = "odrv"]
+    pub o_drive: FloatParam,
+    #[id = "olc"]
+    pub o_lc: FloatParam,
+    #[id = "ohc"]
+    pub o_hc: FloatParam,
+    #[id = "owid"]
+    pub o_width: FloatParam,
+    #[id = "opan"]
+    pub o_pan: FloatParam,
+    #[id = "oout"]
+    pub o_out: FloatParam,
     #[nested(id_prefix = "a", group = "Lane A")]
     pub a: LaneParams,
     #[nested(id_prefix = "b", group = "Lane B")]
@@ -437,7 +457,7 @@ pub struct TbParams {
 impl Default for TbParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(crate::editor::WIDTH, crate::editor::HEIGHT),
+            editor_state: EguiEditorState::from_size(nice_plug::editor::dpi::LogicalSize::new((crate::editor::WIDTH) as f64, (crate::editor::HEIGHT) as f64), 1.0),
             mix: awk_ui::mix_param(),
             bypass: awk_ui::bypass_param(),
             safe: awk_ui::safe_param(),
@@ -446,6 +466,13 @@ impl Default for TbParams {
             dry: level("Dry", 0.0),
             dry_on: BoolParam::new("Dry On", true),
             cross: pct("Cross-Feed", 0.3, 1.0),
+            parallel: BoolParam::new("Parallel", true),
+            o_drive: lin("Original Drive", 0.0, 0.0, 24.0, " dB", 1),
+            o_lc: hz("Original Low Cut", 20.0, 20.0, 2000.0),
+            o_hc: hz("Original High Cut", 20000.0, 1000.0, 20000.0),
+            o_width: pct("Original Width", 1.0, 2.0),
+            o_pan: pan_param("Original Pan"),
+            o_out: level("Original Output", 0.0),
             a: LaneParams::new(false),
             b: LaneParams::new(true),
         }

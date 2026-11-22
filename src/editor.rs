@@ -14,13 +14,13 @@ use crate::model::{self, Train};
 use crate::params::*;
 use crate::presets::PresetBar;
 use crate::Shared;
-use nih_plug::prelude::*;
-use nih_plug_egui::create_egui_editor;
-use nih_plug_egui::egui::{self, pos2, vec2, Align2, Color32, Pos2, Rect, Shape, Stroke};
+use nice_plug::prelude::*;
+use nice_plug_egui::create_egui_editor;
+use egui::{pos2, vec2, Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, StrokeKind};
 use std::sync::Arc;
 
 pub const WIDTH: u32 = 1000;
-pub const HEIGHT: u32 = 950;
+pub const HEIGHT: u32 = 1062;
 pub const LC: [Color32; 2] = [rgb(0xff, 0x8a, 0x3d), rgb(0xff, 0x5f, 0xa2)];
 const TXT: Color32 = rgb(0xcd, 0xef, 0xff);
 const HI: Color32 = rgb(0xf0, 0xfb, 0xff);
@@ -84,15 +84,16 @@ fn choice_row(ui: &mut egui::Ui, setter: &ParamSetter, skin: &Skin, at: Pos2, w:
     }
 }
 
-pub fn create(params: Arc<TbParams>, shared: Arc<Shared>) -> Option<Box<dyn Editor>> {
+pub fn create(params: Arc<TbParams>, shared: Arc<Shared>) -> Option<crate::nice_app::AwkEditor> {
     let state = params.editor_state.clone();
     let st = new_state();
-    create_egui_editor(
-        state,
-        st,
-        |ctx, _| install_fonts(ctx),
-        move |ctx, setter, st| frame(ctx, setter, st, params.as_ref(), shared.as_ref()),
-    )
+    create_egui_editor(state, nice_plug_egui::RepaintNotifier::new(), nice_plug_egui::EguiNiceSettings::default(), crate::nice_app::AwkApp::new(install_fonts, {
+        let mut __st = st;
+        Box::new(move |ctx: &mut egui::Ui, setter: &ParamSetter| {
+            let st = &mut __st;
+            frame(ctx, setter, st, params.as_ref(), shared.as_ref())
+        })
+    }))
 }
 
 fn new_state() -> St {
@@ -109,11 +110,13 @@ fn new_state() -> St {
     }
 }
 
-fn frame(ctx: &egui::Context, setter: &ParamSetter, st: &mut St, p: &TbParams, shared: &Shared) {
+fn frame(root: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &TbParams, shared: &Shared) {
+    let ctx_owned = root.ctx().clone();
+    let ctx = &ctx_owned;
     ctx.request_repaint_after(std::time::Duration::from_millis(33));
     st.skin.begin(ctx);
     let bpm = Shared::get(&shared.bpm).clamp(20.0, 999.0);
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(0x04, 0x07, 0x0c))).show(ctx, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(0x04, 0x07, 0x0c))).show(root, |ui| {
         let whole = ui.max_rect();
         st.skin.background(ui.painter(), whole);
         let _full = st.presets.strip(ui, setter, p, whole, &st.skin, &p.mix, &p.bypass);
@@ -137,21 +140,22 @@ fn frame(ctx: &egui::Context, setter: &ParamSetter, st: &mut St, p: &TbParams, s
             }
         }
 
-        routing(ui, setter, &mut st.skin, p, &trains, rc(16.0, 56.0, 300.0, 260.0), bpm, &mut st.taps, st.edit);
-        echoes(ui, &mut st.skin, p, &trains, rc(328.0, 56.0, 572.0, 260.0), bpm, &mut st.zoom);
+        routing(ui, setter, &mut st.skin, p, &trains, rc(16.0, 56.0, 300.0, 296.0), bpm, &mut st.taps, st.edit);
+        echoes(ui, &mut st.skin, p, &trains, rc(328.0, 56.0, 572.0, 296.0), bpm, &mut st.zoom);
+        orig_strip(ui, setter, &mut st.skin, p, rc(16.0, 364.0, 884.0, 64.0));
         for li in 0..2 {
-            let y = if li == 0 { 328.0 } else { 456.0 };
+            let y = if li == 0 { 440.0 } else { 568.0 };
             let db = Shared::get(&shared.lane_db[li]);
             st.lane_hold[li] = if db > st.lane_hold[li] { db } else { st.lane_hold[li] - 0.4 };
             lane_strip(ui, setter, &mut st.skin, p, li, &trains[li], rc(16.0, y, 884.0, 120.0), db, st.lane_hold[li], &mut st.edit);
         }
-        detail(ui, setter, p, &trains, rc(16.0, 588.0, 884.0, 318.0), st, bpm);
+        detail(ui, setter, p, &trains, rc(16.0, 700.0, 884.0, 318.0), st, bpm);
 
         // meters
         let skin = &mut st.skin;
-        skin.panel(&painter, rc(912.0, 56.0, 72.0, 850.0), "", "");
-        skin.meter(&painter, at(920.0, 0.0).x, at(0.0, 92.0).y, 770.0, "IN", m.db(0), m.db(1), Side::Right, "in");
-        skin.meter(&painter, at(962.0, 0.0).x, at(0.0, 92.0).y, 770.0, "OUT", m.db(2), m.db(3), Side::None, "out");
+        skin.panel(&painter, rc(912.0, 56.0, 72.0, 962.0), "", "");
+        skin.meter(&painter, at(920.0, 0.0).x, at(0.0, 92.0).y, 882.0, "IN", m.db(0), m.db(1), Side::Right, "in");
+        skin.meter(&painter, at(962.0, 0.0).x, at(0.0, 92.0).y, 882.0, "OUT", m.db(2), m.db(3), Side::None, "out");
 
         // footer
         let foot = Rect::from_min_max(pos2(whole.left(), whole.bottom() - 30.0), whole.right_bottom());
@@ -159,6 +163,66 @@ fn frame(ctx: &egui::Context, setter: &ParamSetter, st: &mut St, p: &TbParams, s
         skin.os_selector(ui, setter, pos2(foot.left() + 16.0, foot.center().y - 8.5), &p.os, 1.4);
         skin.safe_chip(ui, setter, Rect::from_center_size(pos2(foot.left() + 404.0, foot.center().y), vec2(112.0, 18.0)), &p.safe, m.db(4));
     });
+}
+
+/// Recessed well a lit key sits in (key and well share one centre).
+fn well(pa: &egui::Painter, r: Rect) {
+    pa.rect_filled(r, 5.0, rgb(0x02, 0x04, 0x07));
+    pa.rect_stroke(r, 5.0, Stroke::new(1.0_f32, rgb(0x14, 0x24, 0x2e)), StrokeKind::Outside);
+}
+
+/// Backlit key: smoked glass when off, glowing `col` when lit.
+fn lit_key(ui: &mut egui::Ui, r: Rect, s: &str, on: bool, col: Color32, id: impl std::hash::Hash + std::fmt::Debug) -> egui::Response {
+    let resp = ui.interact(r, ui.scope_id().with(("tb-litkey", id)), Sense::click());
+    let pa = ui.painter();
+    let k = r.translate(vec2(0.0, if on { 1.0 } else if resp.is_pointer_button_down_on() { 0.5 } else { -0.5 }));
+    if on {
+        for i in 0..5 {
+            pa.rect_filled(k.expand(1.5 + i as f32 * 2.0), 4.0 + i as f32 * 2.0, al(col, 0.05));
+        }
+        pa.rect_filled(k, 3.0, mix_col(col, Color32::BLACK, 0.3));
+        for i in 0..8 {
+            let t = i as f32 / 8.0;
+            pa.rect_filled(k.shrink2(vec2(k.width() * 0.44 * t, k.height() * 0.38 * t)), 3.0 + 6.0 * t, al(mix_col(col, Color32::WHITE, 0.15 + 0.6 * t), 0.4));
+        }
+        vgrad(pa, Rect::from_min_size(k.left_top() + vec2(3.0, 2.0), vec2(k.width() - 6.0, k.height() * 0.4)), Color32::from_white_alpha(60), Color32::TRANSPARENT);
+    } else {
+        vgrad(pa, k, rgb(0x16, 0x22, 0x2b), rgb(0x08, 0x0e, 0x13));
+        vgrad(pa, Rect::from_min_size(k.left_top() + vec2(3.0, 2.0), vec2(k.width() - 6.0, k.height() * 0.4)), Color32::from_white_alpha(if resp.hovered() { 22 } else { 10 }), Color32::TRANSPARENT);
+    }
+    pa.rect_stroke(k, 3.0, Stroke::new(1.0_f32, rgb(0x01, 0x03, 0x05)), StrokeKind::Outside);
+    let tc = if on { mix_col(col, Color32::BLACK, 0.85) } else if resp.hovered() { al(TXT, 0.7) } else { al(TXT, 0.4) };
+    txt(pa, k.center(), Align2::CENTER_CENTER, s, mono(10.5), tc, 1.2);
+    resp
+}
+
+// ---------------------------------------------------------------- ORIGINAL
+
+/// Your own sound's strip. Live only when PARALLEL is off (INSERT).
+fn orig_strip(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbParams, r: Rect) {
+    let painter = ui.painter().clone();
+    skin.panel(&painter, r, "", "");
+    let par = p.parallel.value();
+    let o = r.min.to_vec2() - vec2(16.0, 0.0);
+    let at = |x: f32, y: f32| pos2(x, y) + o;
+    if !par {
+        cham_fill(&painter, r, 10.0, 10.0, Color32::TRANSPARENT, Stroke::new(1.2_f32, al(HI, 0.8)));
+    }
+    painter.rect_filled(Rect::from_min_size(at(17.0, 14.0), vec2(3.0, 36.0)), 0.0, if par { al(HI, 0.3) } else { HI });
+    txt(&painter, at(32.0, 24.0), Align2::LEFT_CENTER, "ORIGINAL · YOUR SOUND", mono(12.0), if par { al(HI, 0.5) } else { HI }, 1.0);
+    let sub = if par { "PARALLEL ON · YOUR SOUND IS UNTOUCHED" } else { "INSERT · THESE SHAPE YOUR SOUND (NO REPEATS)" };
+    txt(&painter, at(32.0, 42.0), Align2::LEFT_CENTER, sub, mono(9.0), DIMT, 1.0);
+    let saved = skin.acc;
+    skin.acc = HI;
+    let ky = 30.0;
+    let kx = |i: usize| 446.0 + i as f32 * 66.0;
+    skin.knob(ui, setter, at(kx(0), ky), 14.0, "DRIVE", &p.o_drive, false, false, par);
+    skin.knob(ui, setter, at(kx(1), ky), 14.0, "LOW CUT", &p.o_lc, false, false, par);
+    skin.knob(ui, setter, at(kx(2), ky), 14.0, "HIGH CUT", &p.o_hc, false, false, par);
+    skin.knob(ui, setter, at(kx(3), ky), 14.0, "WIDTH", &p.o_width, false, false, par);
+    skin.knob(ui, setter, at(kx(4), ky), 14.0, "PAN", &p.o_pan, false, true, par);
+    skin.knob(ui, setter, at(kx(5), ky), 14.0, "OUTPUT", &p.o_out, false, false, par);
+    skin.acc = saved;
 }
 
 // ------------------------------------------------------------------ ROUTING
@@ -170,12 +234,26 @@ fn routing(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbParam
     let o = r.min.to_vec2() - vec2(16.0, 56.0);
     let at = |x: f32, y: f32| pos2(x, y) + o;
     let route = p.route.value();
-    if let Some(i) = chips(ui, skin, at(28.0, 82.0), 88.0, 20.0, 6.0, &ROUTES, route, "route") {
+    // PARALLEL master key (white = your sound untouched)
+    let par = p.parallel.value();
+    let pk = Rect::from_min_size(at(28.0, 83.0), vec2(150.0, 26.0));
+    well(&painter, pk.expand(5.0));
+    if lit_key(ui, pk, if par { "PARALLEL · ON" } else { "PARALLEL · OFF" }, par, HI, "par")
+        .on_hover_text("ON: your sound passes untouched, echoes add on top.\nOFF (INSERT): your sound runs through the ORIGINAL strip.")
+        .clicked()
+    {
+        set_b(setter, &p.parallel, !par);
+    }
+    let (h1, h2) = if par { ("YOUR SOUND UNTOUCHED", "ECHOES ADD ON TOP") } else { ("INSERT: YOUR SOUND", "RUNS THROUGH ORIGINAL") };
+    txt(&painter, at(194.0, 90.0), Align2::LEFT_CENTER, h1, mono(8.5), TXT, 0.3);
+    txt(&painter, at(194.0, 102.0), Align2::LEFT_CENTER, h2, mono(8.5), DIMT, 0.3);
+    lab(&painter, at(28.0, 122.0), "LANES A + B");
+    if let Some(i) = chips(ui, skin, at(28.0, 129.0), 88.0, 20.0, 6.0, &ROUTES, route, "route") {
         set_i(setter, &p.route, i);
     }
     let t = skin.time as f32;
-    let (inp, outp) = (at(44.0, 190.0), at(288.0, 190.0));
-    let boxes = if route == 1 { [at(120.0, 190.0), at(200.0, 190.0)] } else { [at(166.0, 160.0), at(166.0, 222.0)] };
+    let (inp, outp) = (at(44.0, 194.0), at(288.0, 194.0));
+    let boxes = if route == 1 { [at(120.0, 194.0), at(200.0, 194.0)] } else { [at(166.0, 176.0), at(166.0, 214.0)] };
     let dry_on = p.dry_on.value();
     let path = |pts: &[Pos2], col: Color32, dash: bool| {
         for w in pts.windows(2) {
@@ -200,22 +278,24 @@ fn routing(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbParam
             s -= l;
         }
     };
-    let dp = [inp, pos2(inp.x, at(0.0, 124.0).y), pos2(outp.x, at(0.0, 124.0).y), outp];
+    let dp = [inp, pos2(inp.x, at(0.0, 157.0).y), pos2(outp.x, at(0.0, 157.0).y), outp];
     let bypassed = p.bypass.value();
     path(&dp, if dry_on { rgb(0xe6, 0xf0, 0xf5) } else { rgb(0xff, 0x4a, 0x3d) }, !dry_on);
     if dry_on {
         dot(&dp, 0.0, rgb(0xe6, 0xf8, 0xff));
     }
     let dry_db = p.dry.value();
-    let dry_txt = if !dry_on { "DRY OFF (FX SEND MODE)".to_string() } else { format!("DRY · NEVER PROCESSED · {}", if dry_db <= -59.9 { "OFF".into() } else { format!("{dry_db:+.1} dB") }) };
-    txt(&painter, at(166.0, 114.0), Align2::CENTER_CENTER, dry_txt, mono(9.0), if dry_on { rgb(0xe6, 0xf8, 0xff) } else { rgb(0xff, 0x6a, 0x5a) }, 0.5);
+    let dry_tag = if !dry_on { "DRY OFF" } else if par { "ORIGINAL · CLEAN" } else { "ORIGINAL · INSERT" };
+    let dm = Rect::from_center_size(at(166.0, 157.0), vec2(txt_w(&painter, dry_tag, mono(8.5), 0.5) + 12.0, 13.0));
+    painter.rect_filled(dm, 2.0, Color32::from_rgba_unmultiplied(3, 10, 18, 250));
+    txt(&painter, dm.center(), Align2::CENTER_CENTER, dry_tag, mono(8.5), if dry_on { rgb(0xe6, 0xf8, 0xff) } else { rgb(0xff, 0x6a, 0x5a) }, 0.5);
     let lanes: [Vec<Vec<Pos2>>; 2] = if route == 1 {
         [
-            vec![vec![inp, boxes[0]], vec![boxes[0], pos2(boxes[0].x, at(0.0, 252.0).y), pos2(outp.x, at(0.0, 252.0).y), outp]],
+            vec![vec![inp, boxes[0]], vec![boxes[0], pos2(boxes[0].x, at(0.0, 226.0).y), pos2(outp.x, at(0.0, 226.0).y), outp]],
             vec![vec![boxes[0], boxes[1]], vec![boxes[1], outp]],
         ]
     } else {
-        let lane = |b: Pos2| vec![vec![inp, at(80.0, 190.0), pos2(at(80.0, 0.0).x, b.y), b], vec![b, pos2(at(252.0, 0.0).x, b.y), at(252.0, 190.0), outp]];
+        let lane = |b: Pos2| vec![vec![inp, at(80.0, 194.0), pos2(at(80.0, 0.0).x, b.y), b], vec![b, pos2(at(252.0, 0.0).x, b.y), at(252.0, 194.0), outp]];
         [lane(boxes[0]), lane(boxes[1])]
     };
     for li in 0..2 {
@@ -240,22 +320,45 @@ fn routing(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbParam
         cham_fill(&painter, br, 6.0, 6.0, Color32::from_rgba_unmultiplied(3, 10, 18, 242), Stroke::new(1.2_f32, if edit == li { HI } else { LC[li] }));
         let name = TYPES[tr[li].b.kind as usize].0.split(' ').next().unwrap_or("");
         txt(&painter, b, Align2::CENTER_CENTER, format!("{} · {name}", if li == 0 { "A" } else { "B" }), mono(9.0), Color32::WHITE, 0.5);
-        let l = p.lane(li);
-        let s = format!("{} › {}", fmt_db(if l.send.value() <= -59.9 { f32::NEG_INFINITY } else { l.send.value() }), fmt_db(if l.out.value() <= -59.9 { f32::NEG_INFINITY } else { l.out.value() }));
-        let dy = if route == 1 { 26.0 } else if li == 1 { 24.0 } else { -20.0 };
-        txt(&painter, b + vec2(0.0, dy), Align2::CENTER_CENTER, s, mono(8.0), LC[li], 0.0);
     }
     for (q, s) in [(inp, "IN"), (outp, "OUT")] {
         painter.circle_filled(q, 11.0, Color32::from_rgba_unmultiplied(3, 10, 18, 242));
         painter.circle_stroke(q, 11.0, Stroke::new(1.2_f32, CY));
         txt(&painter, q, Align2::CENTER_CENTER, s, mono(8.0), rgb(0xe6, 0xf8, 0xff), 0.0);
     }
-    skin.knob(ui, setter, at(46.0, 278.0), 15.0, "DRY", &p.dry, false, false, !dry_on);
-    skin.knob(ui, setter, at(104.0, 278.0), 15.0, "CROSS", &p.cross, false, false, route != 2);
-    if skin.chip(ui, Rect::from_min_size(at(150.0, 258.0), vec2(72.0, 20.0)), if dry_on { "DRY: ON" } else { "DRY: OFF" }, dry_on, "dryon").on_hover_text("Off = 100% wet, for a send/return channel").clicked() {
+    // SIGNAL NOW: one row per path, lamp lit when it is running
+    lab(&painter, at(28.0, 238.0), "SIGNAL NOW");
+    let dry_state = if !dry_on { "OFF · SEND MODE".to_string() } else if dry_db <= -59.9 { "OFF".to_string() } else if par { format!("CLEAN · {dry_db:+.1} dB") } else { format!("INSERT · {dry_db:+.1} dB") };
+    let mut rows: Vec<(String, String, Color32, bool)> = vec![("ORIGINAL".into(), dry_state, HI, dry_on && dry_db > -59.9)];
+    for li in 0..2 {
+        let l = p.lane(li);
+        let (on, heard) = crate::audible(p, li);
+        let t = &tr[li];
+        let cnt = t.echoes.iter().filter(|e| e.ch == 0 || t.b.style == S_PING).count();
+        let time = if l.sync.value() { NOTE_NAMES[l.note.value() as usize].to_string() } else { format!("{:.0} ms", t.t * 1000.0) };
+        let st_ = if !on { "OFF".to_string() } else if !heard { "MUTED".to_string() } else { format!("ON · {time} · {cnt} REPEATS") };
+        let name = format!("{} · {}", if li == 0 { "A" } else { "B" }, TYPES[t.b.kind as usize].0.split(' ').next().unwrap_or(""));
+        rows.push((name, st_, LC[li], heard && !bypassed));
+    }
+    for (k, (name, st_, col, lit)) in rows.iter().enumerate() {
+        let y = at(0.0, 251.0 + k as f32 * 13.0).y;
+        let c = pos2(at(32.0, 0.0).x, y);
+        if *lit {
+            painter.circle_filled(c, 6.0, al(*col, 0.18));
+            painter.circle_filled(c, 3.6, *col);
+        } else {
+            painter.circle_filled(c, 3.6, Color32::from_rgba_unmultiplied(40, 60, 72, 255));
+        }
+        let tc = if *lit { *col } else { DIMT };
+        txt(&painter, pos2(c.x + 10.0, y), Align2::LEFT_CENTER, name, mono(9.0), tc, 0.5);
+        txt(&painter, pos2(at(304.0, 0.0).x, y), Align2::RIGHT_CENTER, st_, mono(8.5), tc, 0.3);
+    }
+    skin.knob(ui, setter, at(46.0, 300.0), 12.0, "DRY", &p.dry, false, false, !dry_on);
+    skin.knob(ui, setter, at(100.0, 300.0), 12.0, "CROSS", &p.cross, false, false, route != 2);
+    if skin.chip(ui, Rect::from_min_size(at(146.0, 292.0), vec2(72.0, 20.0)), if dry_on { "DRY: ON" } else { "DRY: OFF" }, dry_on, "dryon").on_hover_text("Off = 100% wet, for a send/return channel").clicked() {
         set_b(setter, &p.dry_on, !dry_on);
     }
-    if skin.chip(ui, Rect::from_min_size(at(230.0, 258.0), vec2(74.0, 20.0)), "TAP", false, "tap").on_hover_text("Tap the time for the lane you're editing (sets it to FREE ms)").clicked() {
+    if skin.chip(ui, Rect::from_min_size(at(226.0, 292.0), vec2(78.0, 20.0)), "TAP", false, "tap").on_hover_text("Tap the time for the lane you're editing (sets it to FREE ms)").clicked() {
         let now = skin.time;
         taps.retain(|&x| now - x < 2.5);
         taps.push(now);
@@ -267,7 +370,7 @@ fn routing(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbParam
             set_f(setter, &l.ms, (avg * 1000.0).clamp(1.0, 4000.0) as f32);
         }
     }
-    txt(&painter, at(267.0, 294.0), Align2::CENTER_CENTER, format!("HOST · {bpm:.0} BPM"), mono(9.0), DIMT, 0.5);
+    txt(&painter, at(265.0, 326.0), Align2::CENTER_CENTER, format!("HOST · {bpm:.0} BPM"), mono(9.0), DIMT, 0.5);
 }
 
 // --------------------------------------------------------------- THE ECHOES
@@ -432,7 +535,13 @@ fn lane_strip(ui: &mut egui::Ui, setter: &ParamSetter, skin: &mut Skin, p: &TbPa
     txt(&painter, at(66.0, 42.0), Align2::LEFT_CENTER, format!("LANE {} · {}", if li == 0 { "A" } else { "B" }, STYLES[t.b.style.clamp(0, 4) as usize]), mono(9.0), DIMT, 1.0);
     let saved = skin.acc;
     skin.acc = col;
-    for (s, x, w, prm) in [("ON", 28.0, 34.0, &l.on), ("MUTE", 66.0, 40.0, &l.mute), ("SOLO", 110.0, 40.0, &l.solo), ("Ø", 154.0, 24.0, &l.inv)] {
+    let lon = l.on.value();
+    let kr = Rect::from_min_size(at(28.0, 55.0), vec2(40.0, 22.0));
+    well(&painter, kr.expand(3.0));
+    if lit_key(ui, kr, if lon { "ON" } else { "OFF" }, lon, col, (li, "lane-on")).on_hover_text("Lane on / off").clicked() {
+        set_b(setter, &l.on, !lon);
+    }
+    for (s, x, w, prm) in [("MUTE", 76.0, 40.0, &l.mute), ("SOLO", 120.0, 40.0, &l.solo), ("Ø", 164.0, 24.0, &l.inv)] {
         if skin.chip(ui, Rect::from_min_size(at(x, 56.0), vec2(w, 20.0)), s, prm.value(), (li, s)).clicked() {
             set_b(setter, prm, !prm.value());
         }
@@ -864,7 +973,7 @@ fn detail(ui: &mut egui::Ui, setter: &ParamSetter, p: &TbParams, tr: &[Train; 2]
             for k in 0..16 {
                 let cr = rc(gx + k as f32 * cw, gy, cw - 6.0, gh);
                 let v = l.steps[k].v.value();
-                let resp = ui.interact(cr, ui.id().with(("step", li, k)), egui::Sense::click());
+                let resp = ui.interact(cr, ui.scope_id().with(("step", li, k)), egui::Sense::click());
                 cham_fill(&painter, cr, 4.0, 4.0, if k % 4 == 0 { al(CY, 0.08) } else { al(CY, 0.03) }, Stroke::new(1.0_f32, if resp.hovered() { al(col, 0.8) } else { al(CY, 0.3) }));
                 if v > 0 {
                     let g = STEP_GAIN[v as usize];
@@ -892,19 +1001,17 @@ fn detail(ui: &mut egui::Ui, setter: &ParamSetter, p: &TbParams, tr: &[Train; 2]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nih_plug::context::gui::GuiContext;
-    use nih_plug::wrapper::state::PluginState;
-    use nih_plug_egui::egui::{epaint, Event, ImageData, Modifiers, PointerButton, RawInput, TextureId, TextureWrapMode, Vec2};
+    use nice_plug::context::gui::GuiContextInner;
+    use nice_plug::plugin::PluginState;
+    use egui::{epaint, Event, ImageData, Modifiers, PointerButton, RawInput, TextureId, TextureWrapMode, Vec2};
     use std::collections::HashMap;
 
     struct Mock;
-    impl GuiContext for Mock {
+    impl GuiContextInner for Mock {
         fn plugin_api(&self) -> PluginApi {
             PluginApi::Vst3
         }
-        fn request_resize(&self) -> bool {
-            true
-        }
+        fn request_restart(&self) {}
         unsafe fn raw_begin_set_parameter(&self, _p: ParamPtr) {}
         unsafe fn raw_set_parameter_normalized(&self, _p: ParamPtr, _n: f32) {}
         unsafe fn raw_end_set_parameter(&self, _p: ParamPtr) {}
@@ -929,7 +1036,7 @@ mod tests {
         let mut run = |st: &mut St, ev: Vec<Event>| {
             let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(WIDTH as f32, HEIGHT as f32))), time: Some(i as f64 * 0.04), events: ev, ..Default::default() };
             i += 1;
-            let _ = ctx.run(raw, |ctx| frame(ctx, &setter, st, &params, &shared));
+            let _ = ctx.run_ui(raw, |ctx| frame(ctx, &setter, st, &params, &shared));
         };
         for edit in 0..2 {
             for tab in 0..8 {
@@ -958,10 +1065,9 @@ mod tests {
         repeat: bool,
     }
     fn apply_delta(texs: &mut HashMap<TextureId, Tex>, out: &egui::FullOutput) {
-        for (id, d) in &out.textures_delta.set {
+        for (id, d) in out.textures_delta.set.iter().flat_map(|(id, ds)| ds.iter().map(move |d| (id, d))) {
             let (w, h, px): (usize, usize, Vec<[f32; 4]>) = match &d.image {
                 ImageData::Color(c) => (c.size[0], c.size[1], c.pixels.iter().map(|p| [p.r() as f32 / 255.0, p.g() as f32 / 255.0, p.b() as f32 / 255.0, p.a() as f32 / 255.0]).collect()),
-                ImageData::Font(f) => (f.size[0], f.size[1], f.srgba_pixels(None).map(|p| [p.r() as f32 / 255.0, p.g() as f32 / 255.0, p.b() as f32 / 255.0, p.a() as f32 / 255.0]).collect()),
             };
             let repeat = d.options.wrap_mode == TextureWrapMode::Repeat;
             if let Some(pos) = d.pos {
@@ -1051,7 +1157,7 @@ mod tests {
         let mut texs = HashMap::new();
         let mut last = None;
         for f in 0..4 {
-            last = Some(ctx.run(raw(f, vec![]), |c| frame(c, &setter, &mut st, &p, &sh)));
+            last = Some(ctx.run_ui(raw(f, vec![]), |c| frame(c, &setter, &mut st, &p, &sh)));
             if f < 3 {
                 apply_delta(&mut texs, last.as_ref().unwrap());
             }

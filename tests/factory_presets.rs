@@ -2,7 +2,7 @@
 //! names real params with legal values; with PRESET_OUT=dir it also writes the
 //! .awkp files there (full state JSON; anything a preset doesn't mention loads
 //! at its default).
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use serde_json::{json, Map, Value};
 use throw_back::TbParams;
 
@@ -13,6 +13,10 @@ const B_OFF: (&str, f64) = ("b_on", 0.0);
 
 const PRESETS: &[(&str, P)] = &[
     ("VOCAL - Tape Throw + Space", &[]),
+    // The classic vocal throw: automate A SEND (OFF -> 0 dB) on the last word of a line.
+    // Dark ping-pong tape quarters that duck under the vocal, blooming into a small
+    // diffuse space (A › B), so only the thrown words get space.
+    ("VOCAL - The Throw (automate A SEND)", &[("route", 1.0), ("a_type", 5.0), ("a_style", 2.0), ("a_sync", 1.0), ("a_note", 11.0), ("a_fb", 0.38), ("a_drive", 3.0), ("a_lc", 350.0), ("a_hc", 4500.0), ("a_width", 1.0), ("a_damt", 12.0), ("a_dthr", -28.0), ("a_drel", 350.0), ("a_out", -6.0), ("b_type", 15.0), ("b_sync", 0.0), ("b_ms", 60.0), ("b_fb", 0.55), ("b_diff", 0.85), ("b_lc", 400.0), ("b_hc", 6000.0), ("b_damt", 10.0), ("b_out", -12.0)]),
     ("VOCAL - Slapback Double", &[("a_type", 9.0), ("a_style", 0.0), ("a_sync", 0.0), ("a_ms", 110.0), ("a_fb", 0.2), ("a_out", -8.0), ("a_drive", 3.0), B_OFF]),
     ("VOCAL - Ducked Quarter", &[("a_type", 0.0), ("a_style", 0.0), ("a_note", 11.0), ("a_fb", 0.35), ("a_damt", 18.0), ("a_dthr", -30.0), ("a_drive", 0.0), ("b_damt", 20.0)]),
     ("VOCAL - Radio Throw", &[("a_type", 3.0), ("a_note", 11.0), ("a_fb", 0.45), ("a_out", -8.0), B_OFF]),
@@ -76,7 +80,7 @@ fn factory_presets_are_valid() {
     let dir = std::env::var("PRESET_OUT").ok();
     for (name, over) in PRESETS {
         let v = build(&params, over);
-        let _: nih_plug::wrapper::state::PluginState = serde_json::from_value(v.clone()).unwrap();
+        let _: nice_plug::plugin::PluginState = serde_json::from_value(v.clone()).unwrap();
         if let Some(d) = &dir {
             std::fs::create_dir_all(d).unwrap();
             std::fs::write(format!("{d}/{name}.awkp"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
