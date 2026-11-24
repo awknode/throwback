@@ -87,6 +87,7 @@ fn choice_row(ui: &mut egui::Ui, setter: &ParamSetter, skin: &Skin, at: Pos2, w:
 pub fn create(params: Arc<TbParams>, shared: Arc<Shared>) -> Option<crate::nice_app::AwkEditor> {
     let state = params.editor_state.clone();
     let st = new_state();
+    crate::presets::apply_scale(&state, &params.ui_scale);
     create_egui_editor(state, nice_plug_egui::RepaintNotifier::new(), nice_plug_egui::EguiNiceSettings::default(), crate::nice_app::AwkApp::new(install_fonts, {
         let mut __st = st;
         Box::new(move |ctx: &mut egui::Ui, setter: &ParamSetter| {
@@ -98,7 +99,7 @@ pub fn create(params: Arc<TbParams>, shared: Arc<Shared>) -> Option<crate::nice_
 
 fn new_state() -> St {
     St {
-        presets: PresetBar::new("ThrowBack"),
+        presets: PresetBar::new("ThrowBack").with_dice(&["gmix", "safe", "os", "out", "oout", "dry", "dryon", "on", "mute", "solo", "freeze", "inloop"]),
         skin: Skin::new(Look::Hud, LC[0], "THROWBACK", env!("CARGO_PKG_VERSION"), "2 PARALLEL LANES // DRY NEVER PROCESSED // 20 ECHO TYPES // HOST SYNC // SAFE 0 dB CEILING // PDC 0 SMP"),
         edit: 0,
         tab: 0,
@@ -119,7 +120,7 @@ fn frame(root: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &TbParams, s
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(0x04, 0x07, 0x0c))).show(root, |ui| {
         let whole = ui.max_rect();
         st.skin.background(ui.painter(), whole);
-        let _full = st.presets.strip(ui, setter, p, whole, &st.skin, &p.mix, &p.bypass);
+        let _full = st.presets.strip(ui, setter, p, whole, &st.skin, &p.mix, &p.bypass, &p.ui_scale);
         let o = whole.min.to_vec2();
         let at = |x: f32, y: f32| pos2(x, y) + o;
         let rc = |x: f32, y: f32, w: f32, h: f32| Rect::from_min_size(at(x, y), vec2(w, h));

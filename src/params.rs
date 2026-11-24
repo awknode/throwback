@@ -420,6 +420,9 @@ pub struct TbParams {
     pub mix: FloatParam,
     #[id = "bypass"]
     pub bypass: BoolParam,
+    /// Window size (1.0 = 100%), saved with the project. 0 = not set: open at the default.
+    #[persist = "ui-scale"]
+    pub ui_scale: Arc<std::sync::RwLock<f32>>,
     #[id = "safe"]
     pub safe: BoolParam,
     #[id = "os"]
@@ -460,6 +463,7 @@ impl Default for TbParams {
             editor_state: EguiEditorState::from_size(nice_plug::editor::dpi::LogicalSize::new((crate::editor::WIDTH) as f64, (crate::editor::HEIGHT) as f64), 1.0),
             mix: awk_ui::mix_param(),
             bypass: awk_ui::bypass_param(),
+            ui_scale: Arc::new(std::sync::RwLock::new(0.0)),
             safe: awk_ui::safe_param(),
             os: awk_ui::os_param(),
             route: choice("Routing", 0, &ROUTES),
